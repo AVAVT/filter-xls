@@ -166,6 +166,8 @@ const matchTypeOptions = Object.keys(MATCH_TYPE).map(key => matchTypeToOption(MA
 
 export default class App extends React.Component {
   state = {
+    // inputDirectory: 'E:\\Work\\Dan\\filter-excel-test\\Input',
+    // outputDirectory: 'E:\\Work\\Dan\\filter-excel-test\\Output',
     inputDirectory: '',
     outputDirectory: '',
     conditions: {
@@ -212,15 +214,14 @@ export default class App extends React.Component {
     });
 
     let goAhead = true;
-    const files = fs.readdirSync(outputDirectory);
+    const files = await fs.promises.readdir(outputDirectory);
+
     if (files.length > 0) {
       goAhead = window.confirm("Output folder is not empty. This will delete all files currently in output folder.\nAre you sure?");
       if (goAhead) {
         try {
           for (const file of files) {
-            fs.unlinkSync(path.join(outputDirectory, file), err => {
-              if (err) throw err;
-            });
+            await fs.promises.unlink(path.join(outputDirectory, file));
           }
         }
         catch (error) {
@@ -241,19 +242,19 @@ export default class App extends React.Component {
 
     const evaluator = eval(`obj => ${this.createEvaluateFunction(this.state.conditions)}`);
 
-    const folderContents = fs.readdirSync(inputDirectory);
+
+    const folderContents = await fs.promises.readdir(inputDirectory);
 
     let rowCount = 0;
     let matchCount = 0;
     for (const fileName of folderContents) {
-      this.setState({ currentFile: fileName });
+      await new Promise(resolve => this.setState({ currentFile: fileName }, () => setTimeout(resolve, 200)));
+
       const matches = [];
       try {
         const filePath = `${inputDirectory}/${fileName}`;
         if (!this.isExcelFile(filePath)) continue;
-        const fileContent = this.parseExcelFile(filePath);
-
-        console.log(fileContent);
+        const fileContent = await this.parseExcelFile(filePath);
 
         rowCount += fileContent.length;
         for (const content of fileContent) {
@@ -262,7 +263,6 @@ export default class App extends React.Component {
           }
         }
 
-        console.log(matches);
         matchCount += matches.length;
 
         const resultWorkbook = XLSX.utils.book_new();
@@ -289,7 +289,7 @@ export default class App extends React.Component {
 
   isExcelFile = fullPath => !fs.statSync(fullPath).isDirectory() && supportedExts.includes(path.extname(fullPath))
 
-  parseExcelFile = filePath => {
+  parseExcelFile = filePath => new Promise((resolve, reject) => {
     const workbook = XLSX.readFile(filePath);
     const results = [];
     try {
@@ -305,11 +305,12 @@ export default class App extends React.Component {
         )
       }
     } catch (err) {
-      throw new Error(`File ${filePath} cannot be parsed!`);
+      console.error(err);
+      reject(`File ${filePath} cannot be parsed!`);
     }
 
-    return results;
-  }
+    resolve(results);
+  })
 
   createEvaluateFunction = (condition) => {
     if (condition.type === CONDITION_TYPE.MATCH_GROUP) {
@@ -607,16 +608,20 @@ export default class App extends React.Component {
           conditions && this.renderCondition(conditions)
         }
         <hr />
-        <Button
-          color="success"
-          className="btn-block"
-          onClick={this.filter}
-          disabled={!inputDirectory || !outputDirectory || !!currentFile}
-        >
-          Start Filtering
-          </Button>
+
         {
-          currentFile && <div>Processing file {currentFile}, please wait...</div>
+          currentFile
+            ? (<div>Processing file <code>{currentFile}</code>, please wait...</div>)
+            : (
+              <Button
+                color="success"
+                className="btn-block"
+                onClick={this.filter}
+                disabled={!inputDirectory || !outputDirectory || !!currentFile}
+              >
+                Start Filtering
+              </Button>
+            )
         }
         {
           this.state.errors && (
